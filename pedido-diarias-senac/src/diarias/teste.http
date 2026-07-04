@@ -1,14 +1,24 @@
+### Teste 0: Criar o Servidor Primeiro (Obrigatório porque o banco está zerado)
+POST http://localhost:3000/servidor
+Content-Type: application/json
+
+{
+  "matricula": "12345",
+  "nome": "Adriano Analista",
+  "cargo": "GESTAO"
+}
+
+###
+
 ### Teste 1: Criar uma diária para Gestão em Brasília com Pernoite
 POST http://localhost:3000/diarias
 Content-Type: application/json
 
 {
-  "servidorNome": "Adriano Analista",
   "cargo": "GESTAO",
   "destino": "BRASILIA",
-  "dataSaida": "2026-05-20",
-  "dataRetorno": "2026-05-22",
-  "temPernoite": true
+  "temPernoite": true,
+  "servidorId": 1
 }
 
 ###
@@ -18,12 +28,10 @@ POST http://localhost:3000/diarias
 Content-Type: application/json
 
 {
-  "servidorNome": "João Silva",
   "cargo": "OPERACIONAL",
   "destino": "CANOAS",
-  "dataSaida": "2026-05-25",
-  "dataRetorno": "2026-05-25",
-  "temPernoite": false
+  "temPernoite": false,
+  "servidorId": 1
 }
 
 ###

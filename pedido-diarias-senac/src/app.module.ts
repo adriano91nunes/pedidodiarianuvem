@@ -7,15 +7,17 @@ import { ServidorModule } from './servidor/servidor.module';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 import { CacheModule } from '@nestjs/cache-manager'; // Importação do Cache
+import { PrometheusModule } from '@willsoto/nestjs-prometheus';
 
 @Global()
 @Module({
   imports: [
+    PrometheusModule.register(),
     DiariasModule, 
     ServidorModule,
     ThrottlerModule.forRoot([{
       ttl: 60000,
-      limit: 10,
+      limit: 1000,
     }]),
     // SOLUÇÃO DE PERFORMANCE 2: Ativa cache em memória por 10 segundos (10000 ms)
     CacheModule.register({

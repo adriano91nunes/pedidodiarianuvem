@@ -1,112 +1,177 @@
-# 🏛️ Sistema de Gestão de Diárias em Órgãos Públicos (SGDOP)
+# Sistema de Gestão de Diárias (SGDOP) - Arquitetura em Nuvem 🚀
 
-Este projeto consiste em um ecossistema computacional completo para automação, cálculo e auditoria de concessão de diárias de viagem para servidores públicos. A solução é composta por uma API robusta desenvolvida em **NestJS** e uma interface reativa SPA construída em **React + Vite**.
+Este documento unifica todo o guia de infraestrutura, orquestração e execução do ecossistema distribuído do SGDOP. Ele serve como roteiro completo para configurar, rodar e validar todos os serviços (Banco de Dados, Mensageria, Métricas e Dashboards) do absoluto zero.
 
-## 📊 Modelagem do Domínio (Diagrama Relacional)
+---
 
-O sistema utiliza persistência real de dados em um banco de dados relacional com um relacionamento de 1 para Muitos (1:N). O diagrama abaixo é renderizado nativamente pelo GitHub:
+## 🏗️ Arquitetura da Infraestrutura
 
-```mermaid
-erDiagram
-    SERVIDOR ||--o{ DIARIA : "possui (1:N)"
-    
-    SERVIDOR {
-        Int id PK "Auto-incremento"
-        String matricula UK "Único"
-        String nome
-        String cargo
-    }
-    
-    DIARIA {
-        Int id PK "Auto-incremento"
-        String destino
-        String cargo "Cargo no momento do pedido"
-        Boolean temPernoite
-        Float valorTotal "Calculado automaticamente"
-        Int servidorId FK "Índice de Performance"
-    }
+O ambiente é totalmente orquestrado via Docker, isolando as dependências do sistema e garantindo a comunicação entre os seguintes serviços em rede:
+* **Banco de Dados Relacional (PostgreSQL):** Substitui o antigo SQLite local por um banco em rede robusto e persistente.
+* **Broker de Mensageria (RabbitMQ):** Middleware assíncrono responsável por receber os eventos de criação de diárias e gerenciar a fila de notificações.
+* **Coletor de Métricas (Prometheus):** Agente que realiza raspagem (*scraping*) de telemetria ativa do NestJS a cada 5 segundos.
+* **Painel Visual (Grafana):** Dashboard profissional conectado ao Prometheus para plotagem gráfica de performance, uso de CPU e Memória Heap.
+
+---
+
+## 📋 Pré-requisitos do Ambiente
+
+Antes de iniciar, certifique-se de ter instalado no seu ambiente Linux (Ubuntu):
+* **Docker & Docker Compose** (Atualizados)
+* **Node.js** (Versão 20 ou superior)
+
+---
+
+## 🛠️ Configuração dos Arquivos de Infraestrutura (Raiz do Projeto)
+
+Os dois arquivos abaixo devem ser criados na **pasta raiz** do seu projeto principal (onde fica o repositório global).
+
+### 1. Arquivo `docker-compose.yml`
+```yaml
+version: '3.8'
+
+services:
+  # Banco de Dados Relacional
+  postgres:
+    image: postgres:15-alpine
+    container_name: sgdop-postgres
+    environment:
+      POSTGRES_USER: adriano
+      POSTGRES_PASSWORD: senha_secreta_diarias
+      POSTGRES_DB: sgdop_nuvem
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - rede-nuvem
+
+  # Broker de Mensageria
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: sgdop-rabbitmq
+    ports:
+      - "5672:5672"   # Porta do protocolo AMQP
+      - "15672:15672" # Painel administrativo visual
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    networks:
+      - rede-nuvem
+
+  # Coletor de Métricas
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: sgdop-prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    extra_hosts:
+      - "host.docker.internal:host-gateway" # Permite ao container enxergar o host local
+    networks:
+      - rede-nuvem
+
+  # Painel de Monitoramento Visual
+  grafana:
+    image: grafana/grafana:latest
+    container_name: sgdop-grafana
+    ports:
+      - "3001:3000" # Mapeado na porta 3001 para evitar conflito com o NestJS
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    networks:
+      - rede-nuvem
+
+volumes:
+  postgres_data:
+
+networks:
+  rede-nuvem:
+    driver: bridge
+```
+
+### 2. Arquivo `prometheus.yml`
+```yaml
+global:
+  scrape_interval: 5s # Tempo de amostragem de dados
+
+scrape_configs:
+  - job_name: 'nestjs-app'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['host.docker.internal:3000']
 ```
 
 ---
 
-## 🛠️ Como Executar o Projeto Localmente
+## 🚀 Passo a Passo para Ligar e Executar os Eventos
 
-Para rodar a aplicação completa na sua máquina, siga os passos abaixo divididos por ambiente.
+Siga rigorosamente a sequência de comandos abaixo no seu terminal para levantar o ecossistema:
 
-### 1. Inicialização do Backend (NestJS)
-
-Abra o terminal do seu sistema operacional, navegue até a pasta do backend e execute os comandos de instalação e sincronização de banco:
-
+### Passo 1: Inicializar a Infraestrutura Docker
+Na pasta raiz onde estão os arquivos `.yml`, execute o comando para baixar as imagens oficiais e subir os containers em background:
 ```bash
-# Entrar na pasta do backend
+sudo docker compose up -d
+```
+> ⚡ *Nota de suporte:* Caso o terminal acuse que a porta 3000 está ocupada por algum processo antigo do Node em background, derrube-o usando: `sudo fuser -k 3000/tcp`.
+
+### Passo 2: Entrar na Pasta do Backend e Instalar as Dependências
+Navegue para a subpasta do código-fonte do NestJS (onde fica o arquivo `package.json` do servidor):
+```bash
 cd pedido-diarias-senac
+```
+Execute a instalação em lote de todos os pacotes necessários para os microserviços, validações estruturais e telemetria:
+```bash
+npm install @nestjs/microservices amqplib amqp-connection-manager @willsoto/nestjs-prometheus prom-client class-validator class-transformer --save
+```
 
-# Instalar as dependências do ecossistema NestJS
-npm install
+### Passo 3: Sincronizar as Migrações do Banco de Dados
+Rode o comando do Prisma para ler o Schema, conectar no container do PostgreSQL e criar a estrutura de tabelas do zero:
+```bash
+npx prisma migrate dev --name init_postgres
+```
 
-# Sincronizar o schema do Prisma e gerar o cliente do banco de dados SQLite
-npx prisma db push
-
-# Inicializar o servidor em modo de desenvolvimento
+### Passo 4: Inicializar o Servidor NestJS
+Ligue o motor da sua aplicação em modo de desenvolvimento:
+```bash
 npm run start:dev
 ```
-* **API Principal:** O servidor backend estará ativo no endereço `http://localhost:3000`
-* **Documentação Swagger (OpenAPI):** Acesse as rotas interativas em `http://localhost:3000/api`
-* **Prisma Studio (Auditoria Visual do Banco):** Caso queira inspecionar as tabelas graficamente, abra um terminal paralelo na pasta do back e execute `npx prisma studio` (disponível em `http://localhost:5555`).
-
-### 2. Inicialização do Frontend (React + Vite)
-
-Abra uma **nova aba de terminal paralela** (mantendo o backend rodando), navegue até a pasta do frontend e execute os comandos:
-
-```bash
-# Entrar na pasta do frontend
-cd frontend-diarias
-
-# Instalar os pacotes necessários (como Axios)
-npm install
-```
-
-> ⚠️ **Nota para compatibilidade de Node.js (Ambientes Restritos):** Se o ambiente de desenvolvimento possuir uma versão do Node.js anterior à exigida nativamente pelo motor do Vite/Rolldown (ex: `v20.18.0`), execute o comando abaixo para instalar o binário nativo ignorando as restrições de motor:
-> ```bash
-> npm install @rolldown/binding-win32-x64-msvc --no-engine-strict
-> ```
-
-Com as dependências instaladas, inicialize a interface web:
-
-```bash
-# Execução ignorando a validação rígida de motor do Node no terminal
-$env:VITE_BYPASS_NODE_VERSION_CHECK="true"; npx vite
-```
-* **Interface Gráfica (SPA):** Acesse a aplicação abrindo o navegador no endereço `http://localhost:5173`
+Aguarde a confirmação de inicialização bem-sucedida nos logs do terminal:  
+`[NestApplication] Nest application successfully started`.
 
 ---
 
-## 🧪 Guia de Testes Rápidos (Regras de Negócio)
+## 🚦 Tabela de Portas, Endereços e Painéis Administrativos
 
-Para validar o cálculo automático e o tratamento de erros diretamente na interface (`http://localhost:5173`), utilize a massa de dados parametrizada abaixo:
+Com a infraestrutura ativa, você pode monitorar e auditar os fluxos distribuídos através dos seguintes endereços locais:
 
-### 1. Parâmetros Válidos do Sistema
-* **ID do Servidor Solicitante:** Utilize `1` ou `2` (IDs padrões criados no SQLite).
-* **Cargos Aceitos pelo Sistema:** `Operacional`, `Técnico` ou `Gestão` (Sensível a maiúsculas/minúsculas).
-
-### 2. Cenários Recomendados para Homologação
-* **Teste 1: Cálculo Padrão (Sem Acréscimos)**
-  * **Input:** Destino: `Canoas` | Cargo: `Técnico` | ID: `1` | Pernoite: **Marcado**
-  * **Resultado Esperado:** Valor Total = **R$ 350.00** (Valor base do cargo).
-* **Teste 2: Adicional de Destino Especial (+30%)**
-  * **Input:** Destino: `Porto Alegre` ou `Brasília` | Cargo: `Técnico` | ID: `1` | Pernoite: **Marcado**
-  * **Resultado Esperado:** Valor Total = **R$ 455.00** (R$ 350.00 base + 30%).
-* **Teste 3: Fator Bate-Volta / Sem Pernoite (-50%)**
-  * **Input:** Destino: `Canoas` | Cargo: `Gestão` | ID: `2` | Pernoite: **Desmarcado**
-  * **Resultado Esperado:** Valor Total = **R$ 300.00** (R$ 600.00 base reduzido pela metade).
-* **Teste 4: Tratamento de Exceção (Validação Front/Back)**
-  * **Input:** Tente enviar o formulário com o campo Cargo vazio ou use um ID de servidor inexistente (ex: `999`).
-  * **Resultado Esperado:** O sistema interceptará o erro e exibirá uma caixa vermelha de alerta amigável contendo o motivo da recusa.
+| Serviço / Ferramenta | URL de Acesso no Navegador | Credenciais / Observações |
+| :--- | :--- | :--- |
+| **API Endpoints (NestJS)** | `http://localhost:3000/` | Endpoints da API mapeados na raiz |
+| **Banquete de Dados (Métricas Raw)** | `http://localhost:3000/metrics` | Dados puros gerados para o Prometheus |
+| **Painel de Controle do RabbitMQ** | `http://localhost:15672/` | Usuário: `guest` \| Senha: `guest` |
+| **Status de Conexão do Prometheus** | `http://localhost:9090/targets` | Verifique o endpoint `nestjs-app` como **UP** (Verde) |
+| **Painel Gráfico do Grafana** | `http://localhost:3001/` | Usuário: `admin` \| Senha: `admin` |
 
 ---
 
-## 🚀 Principais Recursos Implementados
+## 🧪 Roteiro de Teste Fim a Fim (Validação dos Requisitos)
 
-* **Performance:** Cache em memória RAM (respostas em **0 ms** via `@nestjs/cache-manager`), Paginação real de dados nativa no banco de dados (`skip` e `take` do Prisma) e Índice de Performance relacional (`@@index`).
-* **Segurança:** Proteção contra ataques de força bruta (*Rate Limiting* via Throttler), injeção de 15 cabeçalhos protetores (*Helmet*), políticas restritas de *CORS* e sanitização de dados via *ValidationPipes (Whitelist)*.
-* **Resiliência (Tratamento de Erros):** Captura de exceções global unificada. Dados incorretos enviados à API são interceptados pelo front-end e exibidos de forma amigável em componentes visuais na tela, evitando interrupções na SPA.
+Para validar a integração nativa dos serviços e provar que o circuito funciona de ponta a ponta, execute os passos abaixo:
+
+1.  **Conexão do Grafana ao Prometheus:**
+    * Acesse `http://localhost:3001` e faça login.
+    * Vá em **Connections -> Data sources -> Add data source** e selecione **Prometheus**.
+    * No campo *Prometheus server URL*, insira `http://prometheus:9090`. Role até o final e clique em **Save & test**.
+    * Clique no ícone de `+` no topo, escolha **Import dashboard**, digite o ID universal **`11159`**, clique em **Load**, selecione a sua fonte do Prometheus e clique em **Import**.
+
+2.  **Disparo de Requisições via REST Client:**
+    * Abra o seu arquivo `teste.http` dentro do VS Code.
+    * Clique em **Send Request** no **Teste 0 (POST /servidor)** para persistir o primeiro usuário no banco relacional PostgreSQL em rede.
+    * Clique em **Send Request** no **Teste 1 (POST /diarias)** para salvar o pedido de diária calculada.
+
+3.  **Auditoria Visual dos Fluxos:**
+    * Acesse a aba *Queues and Streams* do **RabbitMQ** e veja a mensagem de notificação criada de forma assíncrona entrar na fila `diarias_notificacao` (Coluna *Ready* pulando para 1).
+    * Acesse o painel do **Grafana** e veja as linhas dos gráficos se moverem, plotando os picos de uso de CPU, Event Loop e consumo de memória Heap gerados pelas requisições que você acabou de enviar.
+```
