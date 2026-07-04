@@ -1,0 +1,33 @@
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// 1ª Entidade (CRUD 1): Servidor Público
+model Servidor {
+  id        Int      @id @default(autoincrement())
+  matricula String   @unique
+  nome      String
+  cargo     String   // OPERACIONAL, TECNICO ou GESTAO
+  criadoEm  DateTime @default(now())
+
+  // Relação: Um servidor pode ter muitos pedidos de diária
+  diarias   Diaria[]
+}
+
+// 2ª Entidade (CRUD 2): Pedido de Diária
+model Diaria {
+  id             Int      @id @default(autoincrement())
+  destino        String
+  temPernoite    Boolean
+  valorTotal     Float
+  criadoEm       DateTime @default(now())
+
+  // Configuração da chave estrangeira conectando ao Servidor
+  servidorId     Int
+  servidor       Servidor @relation(fields: [servidorId], references: [id], onDelete: Cascade)
+}

@@ -1,0 +1,32 @@
+### Teste 1: Criar uma diária para Gestão em Brasília com Pernoite
+POST http://localhost:3000/diarias
+Content-Type: application/json
+
+{
+  "servidorNome": "Adriano Analista",
+  "cargo": "GESTAO",
+  "destino": "BRASILIA",
+  "dataSaida": "2026-05-20",
+  "dataRetorno": "2026-05-22",
+  "temPernoite": true
+}
+
+###
+
+### Teste 2: Criar uma diária Operacional (Bate-volta no interior)
+POST http://localhost:3000/diarias
+Content-Type: application/json
+
+{
+  "servidorNome": "João Silva",
+  "cargo": "OPERACIONAL",
+  "destino": "CANOAS",
+  "dataSaida": "2026-05-25",
+  "dataRetorno": "2026-05-25",
+  "temPernoite": false
+}
+
+###
+
+### Teste 3: Ver todos os pedidos realizados
+GET http://localhost:3000/diarias
